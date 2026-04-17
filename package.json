@@ -10,8 +10,5 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test test/*.test.js"
-  },
-  "dependencies": {
-    "@ratio1/edge-sdk-ts": "git+https://github.com/Ratio1/edge-sdk-ts.git#7aee7fb5d6c26a6c10a89e56a4d154b55f2796f1"
   }
 }
