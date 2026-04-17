@@ -42,11 +42,10 @@ function createApp({ config, sdk }) {
         return;
       }
 
-      if (!requireBearer(req, res, config.bearerToken)) {
-        return;
-      }
-
       if (req.method === 'POST' && pathname === '/seed') {
+        if (!requireBearer(req, res, config.bearerToken)) {
+          return;
+        }
         const body = await readJsonBody(req);
         const payload = await seedPhase({
           sdk,
@@ -59,6 +58,9 @@ function createApp({ config, sdk }) {
       }
 
       if (req.method === 'GET' && pathname === '/snapshot') {
+        if (!requireBearer(req, res, config.bearerToken)) {
+          return;
+        }
         const payload = await readSnapshot({
           sdk,
           hkey: searchParams.get('hkey'),
@@ -68,6 +70,9 @@ function createApp({ config, sdk }) {
       }
 
       if (req.method === 'POST' && pathname === '/hsync') {
+        if (!requireBearer(req, res, config.bearerToken)) {
+          return;
+        }
         const body = await readJsonBody(req);
         const payload = await runHsyncAndSnapshot({
           sdk,
@@ -77,7 +82,7 @@ function createApp({ config, sdk }) {
         return;
       }
 
-      sendJson(res, 404, { error: 'Not Found' });
+      sendJson(res, 404, { error: 'Not found' });
     } catch (error) {
       sendJson(res, 500, { error: error.message });
     }

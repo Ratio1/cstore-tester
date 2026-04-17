@@ -77,19 +77,55 @@ test('protected routes reject a missing bearer token', async () => {
   }
 });
 
+test('unknown routes return a 404 without triggering auth', async () => {
+  const app = createApp({
+    config: {
+      hostAlias: 'thorn-01',
+      hostAddr: '10.0.0.1',
+      version: '0.1.0',
+      bearerToken: 'secret',
+    },
+    sdk: {},
+  });
+  const server = await listenApp(app);
+
+  try {
+    const response = await request(server.port, 'GET', '/nope');
+
+    assert.equal(response.status, 404);
+    assert.deepEqual(response.json, { error: 'Not found' });
+  } finally {
+    await server.close();
+  }
+});
+
 test('POST /seed and POST /hsync return structured JSON payloads', async () => {
   const store = new Map();
   const sdk = {
-    async hset(hkey, field, value) {
-      const current = store.get(hkey) ?? {};
-      current[field] = value;
-      store.set(hkey, current);
-    },
-    async hgetall(hkey) {
-      return store.get(hkey) ?? {};
-    },
-    async hsync() {
-      return { synced: true };
+    cstore: {
+      async hset({ hkey, key, value }) {
+        const current = store.get(hkey) ?? {};
+        current[key] = value;
+        store.set(hkey, current);
+      },
+      async hgetall({ hkey }) {
+        return store.get(hkey) ?? {};
+      },
+      async hsync({ hkey }) {
+        const current = store.get(hkey) ?? {};
+        current.k100 = JSON.stringify({
+          sessionId: 'session-1',
+          key: 'k100',
+          version: 'v1',
+        });
+        current.k101 = JSON.stringify({
+          sessionId: 'session-1',
+          key: 'k101',
+          version: 'v1',
+        });
+        store.set(hkey, current);
+        return { synced: true, hkey };
+      },
     },
   };
 
@@ -122,7 +158,7 @@ test('POST /seed and POST /hsync return structured JSON payloads', async () => {
     assert.equal(seedResponse.json.writtenFieldCount, 4);
     assert.equal(seedResponse.json.fieldCount, 4);
     assert.equal(typeof seedResponse.json.digest, 'string');
-    assert.ok(seedResponse.json.snapshot.k000);
+    assert.equal(JSON.parse(seedResponse.json.snapshot.k000).version, 'v1');
 
     const hsyncResponse = await request(server.port, 'POST', '/hsync', {
       headers: {
@@ -136,8 +172,9 @@ test('POST /seed and POST /hsync return structured JSON payloads', async () => {
 
     assert.equal(hsyncResponse.status, 200);
     assert.equal(hsyncResponse.json.hsync.synced, true);
+    assert.equal(hsyncResponse.json.hsync.hkey, 'cstore:session-1');
     assert.equal(typeof hsyncResponse.json.digest, 'string');
-    assert.ok(hsyncResponse.json.snapshot.k000);
+    assert.equal(JSON.parse(hsyncResponse.json.snapshot.k100).key, 'k100');
   } finally {
     await server.close();
   }

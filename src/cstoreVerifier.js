@@ -1,17 +1,21 @@
 const crypto = require('node:crypto');
 
-function buildExpectedSnapshots() {
+function createValue(sessionId, key, version) {
+  return JSON.stringify({ sessionId: String(sessionId), key, version });
+}
+
+function buildExpectedSnapshots(sessionId) {
   const baseline = {
-    k000: { key: 'k000', version: 'v1' },
-    k001: { key: 'k001', version: 'v1' },
-    k002: { key: 'k002', version: 'v1' },
-    k003: { key: 'k003', version: 'v1' },
+    k000: createValue(sessionId, 'k000', 'v1'),
+    k001: createValue(sessionId, 'k001', 'v1'),
+    k002: createValue(sessionId, 'k002', 'v1'),
+    k003: createValue(sessionId, 'k003', 'v1'),
   };
   const delta = {
-    k000: { key: 'k000', version: 'v2' },
-    k001: { key: 'k001', version: 'v2' },
-    k100: { key: 'k100', version: 'v1' },
-    k101: { key: 'k101', version: 'v1' },
+    k000: createValue(sessionId, 'k000', 'v2'),
+    k001: createValue(sessionId, 'k001', 'v2'),
+    k100: createValue(sessionId, 'k100', 'v1'),
+    k101: createValue(sessionId, 'k101', 'v1'),
   };
   const final = {
     ...baseline,
@@ -29,8 +33,7 @@ function normalizeSnapshot(snapshot) {
   return Object.keys(snapshot)
     .sort()
     .reduce((normalized, key) => {
-      const value = snapshot[key];
-      normalized[key] = typeof value === 'string' ? value : JSON.stringify(value);
+      normalized[key] = String(snapshot[key]);
       return normalized;
     }, {});
 }
@@ -41,18 +44,18 @@ function digestSnapshot(snapshot) {
 }
 
 async function readSnapshot({ sdk, hkey }) {
-  const snapshot = (await sdk.hgetall(hkey)) || {};
-  const digest = digestSnapshot(snapshot);
+  const rawSnapshot = (await sdk.cstore.hgetall({ hkey })) || {};
+  const snapshot = normalizeSnapshot(rawSnapshot);
 
   return {
     snapshot,
-    digest,
+    digest: digestSnapshot(snapshot),
     fieldCount: Object.keys(snapshot).length,
   };
 }
 
-async function seedPhase({ sdk, hkey, phase }) {
-  const snapshots = buildExpectedSnapshots();
+async function seedPhase({ sdk, hkey, sessionId, phase }) {
+  const snapshots = buildExpectedSnapshots(sessionId);
   let payload;
 
   if (phase === 'baseline') {
@@ -63,8 +66,8 @@ async function seedPhase({ sdk, hkey, phase }) {
     throw new Error(`Unknown phase: ${phase}`);
   }
 
-  for (const [field, value] of Object.entries(payload)) {
-    await sdk.hset(hkey, field, value);
+  for (const [key, value] of Object.entries(payload)) {
+    await sdk.cstore.hset({ hkey, key, value });
   }
 
   const snapshot = await readSnapshot({ sdk, hkey });
@@ -77,7 +80,7 @@ async function seedPhase({ sdk, hkey, phase }) {
 }
 
 async function runHsyncAndSnapshot({ sdk, hkey }) {
-  const hsync = await sdk.hsync(hkey);
+  const hsync = await sdk.cstore.hsync({ hkey });
   const snapshot = await readSnapshot({ sdk, hkey });
 
   return {
