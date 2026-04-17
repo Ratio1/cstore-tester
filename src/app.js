@@ -46,7 +46,19 @@ function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function isJsonObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validateJsonObjectBody(body) {
+  if (!isJsonObject(body)) {
+    throw new HttpError(400, 'Bad Request');
+  }
+}
+
 function validateSeedBody(body) {
+  validateJsonObjectBody(body);
+
   if (!isNonEmptyString(body.hkey) || !isNonEmptyString(body.sessionId)) {
     throw new HttpError(400, 'Bad Request');
   }
@@ -111,6 +123,7 @@ function createApp({ config, sdk, logger = console }) {
           return;
         }
         const body = await readJsonBody(req);
+        validateJsonObjectBody(body);
         validateHkey(body.hkey);
         const payload = await runHsyncAndSnapshot({
           sdk,
@@ -138,4 +151,5 @@ module.exports = {
   HttpError,
   readJsonBody,
   sendJson,
+  validateJsonObjectBody,
 };

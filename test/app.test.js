@@ -221,6 +221,76 @@ test('POST /hsync rejects missing hkey', async () => {
   }
 });
 
+test('POST /seed rejects JSON null bodies', async () => {
+  const sdk = {
+    cstore: {
+      async hset() {
+        throw new Error('should not be called');
+      },
+    },
+  };
+  const app = createApp({
+    config: {
+      hostAlias: 'thorn-01',
+      hostAddr: '10.0.0.1',
+      version: '0.1.0',
+      bearerToken: 'secret',
+    },
+    sdk,
+  });
+  const server = await listenApp(app);
+
+  try {
+    const response = await request(server.port, 'POST', '/seed', {
+      headers: {
+        authorization: 'Bearer secret',
+        'content-type': 'application/json',
+      },
+      rawBody: 'null',
+    });
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(response.json, { error: 'Bad Request' });
+  } finally {
+    await server.close();
+  }
+});
+
+test('POST /hsync rejects JSON null bodies', async () => {
+  const sdk = {
+    cstore: {
+      async hsync() {
+        throw new Error('should not be called');
+      },
+    },
+  };
+  const app = createApp({
+    config: {
+      hostAlias: 'thorn-01',
+      hostAddr: '10.0.0.1',
+      version: '0.1.0',
+      bearerToken: 'secret',
+    },
+    sdk,
+  });
+  const server = await listenApp(app);
+
+  try {
+    const response = await request(server.port, 'POST', '/hsync', {
+      headers: {
+        authorization: 'Bearer secret',
+        'content-type': 'application/json',
+      },
+      rawBody: 'null',
+    });
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(response.json, { error: 'Bad Request' });
+  } finally {
+    await server.close();
+  }
+});
+
 test('malformed JSON returns 400', async () => {
   const sdk = {
     cstore: {
