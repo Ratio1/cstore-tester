@@ -19,7 +19,12 @@ async function request(port, method, path, options = {}) {
   const response = await fetch(`http://127.0.0.1:${port}${path}`, {
     method,
     headers: options.headers,
-    body: options.body ? JSON.stringify(options.body) : undefined,
+    body:
+      options.rawBody !== undefined
+        ? options.rawBody
+        : options.body
+          ? JSON.stringify(options.body)
+          : undefined,
   });
 
   return {
@@ -94,6 +99,198 @@ test('unknown routes return a 404 without triggering auth', async () => {
 
     assert.equal(response.status, 404);
     assert.deepEqual(response.json, { error: 'Not found' });
+  } finally {
+    await server.close();
+  }
+});
+
+test('POST /seed rejects missing hkey, missing sessionId, and invalid phase', async () => {
+  const sdk = {
+    cstore: {
+      async hset() {
+        throw new Error('should not be called');
+      },
+      async hgetall() {
+        throw new Error('should not be called');
+      },
+      async hsync() {
+        throw new Error('should not be called');
+      },
+    },
+  };
+  const app = createApp({
+    config: {
+      hostAlias: 'thorn-01',
+      hostAddr: '10.0.0.1',
+      version: '0.1.0',
+      bearerToken: 'secret',
+    },
+    sdk,
+  });
+  const server = await listenApp(app);
+
+  try {
+    const cases = [
+      { body: { sessionId: 'session-1', phase: 'baseline' } },
+      { body: { hkey: 'cstore:session-1', phase: 'baseline' } },
+      { body: { hkey: 'cstore:session-1', sessionId: 'session-1', phase: 'oops' } },
+    ];
+
+    for (const input of cases) {
+      const response = await request(server.port, 'POST', '/seed', {
+        headers: {
+          authorization: 'Bearer secret',
+          'content-type': 'application/json',
+        },
+        body: input.body,
+      });
+
+      assert.equal(response.status, 400);
+      assert.deepEqual(response.json, { error: 'Bad Request' });
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test('POST /snapshot rejects missing hkey', async () => {
+  const sdk = {
+    cstore: {
+      async hgetall() {
+        throw new Error('should not be called');
+      },
+    },
+  };
+  const app = createApp({
+    config: {
+      hostAlias: 'thorn-01',
+      hostAddr: '10.0.0.1',
+      version: '0.1.0',
+      bearerToken: 'secret',
+    },
+    sdk,
+  });
+  const server = await listenApp(app);
+
+  try {
+    const response = await request(server.port, 'GET', '/snapshot', {
+      headers: {
+        authorization: 'Bearer secret',
+      },
+    });
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(response.json, { error: 'Bad Request' });
+  } finally {
+    await server.close();
+  }
+});
+
+test('POST /hsync rejects missing hkey', async () => {
+  const sdk = {
+    cstore: {
+      async hsync() {
+        throw new Error('should not be called');
+      },
+    },
+  };
+  const app = createApp({
+    config: {
+      hostAlias: 'thorn-01',
+      hostAddr: '10.0.0.1',
+      version: '0.1.0',
+      bearerToken: 'secret',
+    },
+    sdk,
+  });
+  const server = await listenApp(app);
+
+  try {
+    const response = await request(server.port, 'POST', '/hsync', {
+      headers: {
+        authorization: 'Bearer secret',
+        'content-type': 'application/json',
+      },
+      body: {},
+    });
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(response.json, { error: 'Bad Request' });
+  } finally {
+    await server.close();
+  }
+});
+
+test('malformed JSON returns 400', async () => {
+  const sdk = {
+    cstore: {
+      async hset() {
+        throw new Error('should not be called');
+      },
+    },
+  };
+  const app = createApp({
+    config: {
+      hostAlias: 'thorn-01',
+      hostAddr: '10.0.0.1',
+      version: '0.1.0',
+      bearerToken: 'secret',
+    },
+    sdk,
+  });
+  const server = await listenApp(app);
+
+  try {
+    const response = await request(server.port, 'POST', '/seed', {
+      headers: {
+        authorization: 'Bearer secret',
+        'content-type': 'application/json',
+      },
+      rawBody: '{not-json',
+    });
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(response.json, { error: 'Invalid JSON' });
+  } finally {
+    await server.close();
+  }
+});
+
+test('internal SDK failures return a generic 500', async () => {
+  const sdk = {
+    cstore: {
+      async hsync() {
+        throw new Error('boom');
+      },
+    },
+  };
+  const logged = [];
+  const app = createApp({
+    config: {
+      hostAlias: 'thorn-01',
+      hostAddr: '10.0.0.1',
+      version: '0.1.0',
+      bearerToken: 'secret',
+    },
+    sdk,
+    logger: {
+      error: (error) => logged.push(error.message),
+    },
+  });
+  const server = await listenApp(app);
+
+  try {
+    const response = await request(server.port, 'POST', '/hsync', {
+      headers: {
+        authorization: 'Bearer secret',
+        'content-type': 'application/json',
+      },
+      body: { hkey: 'cstore:session-1' },
+    });
+
+    assert.equal(response.status, 500);
+    assert.deepEqual(response.json, { error: 'Internal Server Error' });
+    assert.deepEqual(logged, ['boom']);
   } finally {
     await server.close();
   }

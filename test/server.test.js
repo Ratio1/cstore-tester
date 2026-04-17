@@ -26,8 +26,15 @@ test('startServer logs version, hostAlias, and hostAddr', async () => {
   });
 
   await new Promise((resolve) => server.once('listening', resolve));
+  const address = server.address();
   await new Promise((resolve) => server.close(resolve));
 
   assert.equal(logs.length, 1);
-  assert.match(logs[0], /cstore-tester 0\.1\.0 listening on 127\.0\.0\.1:0 for thorn-01@10\.0\.0\.1/);
+  assert.equal(typeof address.port, 'number');
+  assert.match(
+    logs[0],
+    new RegExp(
+      `cstore-tester 0\\.1\\.0 listening on 127\\.0\\.0\\.1:${address.port} for thorn-01@10\\.0\\.0\\.1`,
+    ),
+  );
 });

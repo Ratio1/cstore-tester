@@ -6,6 +6,13 @@ const {
   seedPhase,
 } = require('./cstoreVerifier');
 
+class HttpError extends Error {
+  constructor(statusCode, message) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
 function sendJson(res, statusCode, payload) {
   res.statusCode = statusCode;
   res.setHeader('content-type', 'application/json; charset=utf-8');
@@ -24,10 +31,38 @@ async function readJsonBody(req) {
   }
 
   const raw = Buffer.concat(chunks).toString('utf8');
-  return raw ? JSON.parse(raw) : {};
+  if (!raw.trim()) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new HttpError(400, 'Invalid JSON');
+  }
 }
 
-function createApp({ config, sdk }) {
+function isNonEmptyString(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function validateSeedBody(body) {
+  if (!isNonEmptyString(body.hkey) || !isNonEmptyString(body.sessionId)) {
+    throw new HttpError(400, 'Bad Request');
+  }
+
+  if (body.phase !== 'baseline' && body.phase !== 'delta') {
+    throw new HttpError(400, 'Bad Request');
+  }
+}
+
+function validateHkey(value) {
+  if (!isNonEmptyString(value)) {
+    throw new HttpError(400, 'Bad Request');
+  }
+}
+
+function createApp({ config, sdk, logger = console }) {
   return async function app(req, res) {
     try {
       const { pathname, searchParams } = new URL(req.url, 'http://localhost');
@@ -47,10 +82,11 @@ function createApp({ config, sdk }) {
           return;
         }
         const body = await readJsonBody(req);
+        validateSeedBody(body);
         const payload = await seedPhase({
           sdk,
-          hkey: body.hkey,
-          sessionId: body.sessionId,
+          hkey: body.hkey.trim(),
+          sessionId: body.sessionId.trim(),
           phase: body.phase,
         });
         sendJson(res, 200, payload);
@@ -61,9 +97,10 @@ function createApp({ config, sdk }) {
         if (!requireBearer(req, res, config.bearerToken)) {
           return;
         }
+        validateHkey(searchParams.get('hkey'));
         const payload = await readSnapshot({
           sdk,
-          hkey: searchParams.get('hkey'),
+          hkey: searchParams.get('hkey').trim(),
         });
         sendJson(res, 200, payload);
         return;
@@ -74,9 +111,10 @@ function createApp({ config, sdk }) {
           return;
         }
         const body = await readJsonBody(req);
+        validateHkey(body.hkey);
         const payload = await runHsyncAndSnapshot({
           sdk,
-          hkey: body.hkey,
+          hkey: body.hkey.trim(),
         });
         sendJson(res, 200, payload);
         return;
@@ -84,13 +122,20 @@ function createApp({ config, sdk }) {
 
       sendJson(res, 404, { error: 'Not found' });
     } catch (error) {
-      sendJson(res, 500, { error: error.message });
+      if (error instanceof HttpError) {
+        sendJson(res, error.statusCode, { error: error.message });
+        return;
+      }
+
+      logger.error(error);
+      sendJson(res, 500, { error: 'Internal Server Error' });
     }
   };
 }
 
 module.exports = {
   createApp,
+  HttpError,
   readJsonBody,
   sendJson,
 };

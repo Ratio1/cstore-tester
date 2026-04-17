@@ -10,3 +10,7 @@ test('loadConfig uses the plan defaults when env vars are missing', () => {
   assert.equal(config.hostAlias, 'unknown-node');
   assert.equal(config.hostAddr, 'unknown-address');
 });
+
+test('loadConfig rejects invalid ports', () => {
+  assert.throws(() => loadConfig({ PORT: 'not-a-number' }), /Invalid PORT value/);
+});
